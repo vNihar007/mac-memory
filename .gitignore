@@ -223,3 +223,7 @@ __marimo__/
 .python-version
 README.md
 
+# Raycast
+raycast/node_modules/
+raycast/dist/
+raycast/*.log
