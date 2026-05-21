@@ -3,7 +3,7 @@
   "name": "mac-memory",
   "title": "Mac Memory",
   "description": "Semantic file search across your Mac",
-  "icon": "icon.png",
+  "icon" : "🕵️",
   "author": "varunnihar",
   "categories": ["Productivity"],
   "license": "MIT",

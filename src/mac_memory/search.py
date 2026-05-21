@@ -1,4 +1,5 @@
 from dataclasses import dataclass 
+from mac_memory import query_processor
 
 @dataclass 
 class SearchResult: 
@@ -23,30 +24,44 @@ except Exception  :
     sys.exit(1)
 
 def search_files(query:str , top_k :int = 8 , file_type:str |None = None ) -> list[SearchResult] :
-    result  = embedder.embed_text(query)
-    if result is None or not result.embeddings:
-        return []
-    where  = {"type " : file_type} if file_type else None
-    vector = result.embeddings[0].values
-    results  = collection.query(
-        query_embeddings=[vector],
-        n_results = min(top_k , collection.count()),
-        where = where ,
-        include  = ["metadatas","distances"],
-    )
+    
+    parsed = query_processor.process_query(query)
+    queries = query_processor.expand_query(parsed["clean_query"])
+    
+    where = parsed["where_filter"]
+    if file_type :
+        where  = {"type" : file_type}
+    
+    # Multi-vector search: embed each expanded query, merge results
+    all_results = {}
+    for q in queries:
+        result = embedder.embed_text(q)
+        if result is None or not result.embeddings:
+            return []
+        vector = result.embeddings[0].values
+        results = collection.query(
+            query_embeddings=[vector],
+            n_results=min(top_k * 2, collection.count()),
+            where=where,
+            include=["metadatas", "distances"],
+        )
+        for meta, distance in zip(results["metadatas"][0], results["distances"][0]):
+            path = meta["path"]
+            if path not in all_results or distance < all_results[path][1]:
+                all_results[path] = (meta, distance)
 
-    output = []
-    for meta , distance in zip(results["metadatas"][0],results['distances'][0]):
-        similarity = round(1.0 - distance , 4)
-        output.append(SearchResult(
-            path = meta["path"] ,
-            name = meta ["name"] ,
-            file_type = meta["type"],
-            similarity= similarity , 
-            size = meta.get("size",0)
-        ))
-    return output 
+    sorted_results = sorted(all_results.values(), key=lambda x: x[1])[:top_k]
 
+    return [
+        SearchResult(
+            path=meta["path"],
+            name=meta["name"],
+            file_type=meta["type"],
+            similarity=round(1.0 - distance, 4),
+            size=meta.get("size", 0),
+        )
+        for meta, distance in sorted_results
+    ]
 
 # CLI INTERFACE 
 import argparse 

@@ -54,8 +54,8 @@ def enrich_image(path:Path)->dict :
 # using the enrich_audio part !! --> now or after
 
 # testing funtion :
-path = '/Users/varunnihar/Downloads/IMG_1110.HEIC'
-res = enrich_image(path)
-print(json.dumps(res, indent=2))
+# path = '/Users/varunnihar/Downloads/IMG_1110.HEIC'
+# res = enrich_image(path)
+# print(json.dumps(res, indent=2))
 
 

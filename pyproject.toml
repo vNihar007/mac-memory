@@ -12,9 +12,18 @@ dependencies = [
     "dotenv>=0.9.9",
     "google-genai>=2.4.0",
     "pillow>=12.2.0",
+    "pillow-heif>=0.15.0",
     "pymupdf>=1.27.2.3",
 ]
 
 [build-system]
 requires = ["uv_build>=0.9.27,<0.10.0"]
 build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "exifread>=3.5.1",
+    "openai-whisper>=20250625",
+    "pytesseract>=0.3.13",
+    "pytest>=9.0.3",
+]
