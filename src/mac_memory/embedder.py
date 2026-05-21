@@ -5,19 +5,33 @@ from mac_memory import configure
 # client = genai.Client(api_key=configure.GEMINI_API_KEY)
 client = genai.Client(api_key=configure.GEMINI_API_KEY)
 
-def embed_text(text:str) -> list[float] | None : 
+# gemini-embedding-2 has no task_type param; the retrieval task is given as a
+# content prefix instead. Query and document sides must use the matching format.
+def _doc_prefix(title: str, content: str) -> str:
+    if title is None : 
+        title = "None"
+    return f"title: {title} | text: {content}"
+
+def _query_prefix(query: str) -> str:
+    return f"task: search result | query: {query}"
+
+def embed_text(text:str) -> list[float] | None :
     if not text.strip():
-        return None 
-    try:  
+        return None
+    try:
         result = client.models.embed_content(
             # api_key = configure.GEMINI_API_KEY,
             model = configure.EMBEDDING_MODEL,
-            contents = text 
+            contents = text
         )
         return result
     except Exception as e:
         print(f"text embedder error : {e}")
         return None
+
+def embed_query(query: str) -> list[float] | None:
+    """Embed a search query with the retrieval-query prefix (search side)."""
+    return embed_text(_query_prefix(query))
 
 # for testing 
 # text  = "whats is todays date "
@@ -55,7 +69,7 @@ def embed_image(path:Path) -> list[float] | None :
             )
             result = client.models.embed_content(
                 model=configure.EMBEDDING_MODEL,
-                contents=part
+                contents=[_doc_prefix("photo", ""), part],
             )
             return result
     except Exception as e : 
@@ -85,10 +99,10 @@ def embed_pdf(path:Path) ->list[float] |None :
             pages_text.append(page.get_text())
         doc.close()
         text  = '\n'.join(pages_text).strip()
-        if not text: 
+        if not text:
             return None
-        return embed_text(text[:8000])
-    except Exception as e : 
+        return embed_text(_doc_prefix(path.name, text[:8000]))
+    except Exception as e :
         print(f"error while embedding pdf {path} with error {e}")
         return None
     
@@ -111,12 +125,12 @@ def embed_text_file(path:Path) -> list[float] | None :
         return None 
     try : 
         text  = path.read_text(encoding='utf-8', errors='ignore').strip()
-        if not text : 
-            return None 
-        return embed_text(text[:8000])
-    except Exception as e : 
+        if not text :
+            return None
+        return embed_text(_doc_prefix(path.name, text[:8000]))
+    except Exception as e :
         print(f"falied to embed file {path.name} as error {e}")
-        return None 
+        return None
 
 # final funtion for public display
 

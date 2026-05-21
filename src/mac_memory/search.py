@@ -35,7 +35,7 @@ def search_files(query:str , top_k :int = 8 , file_type:str |None = None ) -> li
     # Multi-vector search: embed each expanded query, merge results
     all_results = {}
     for q in queries:
-        result = embedder.embed_text(q)
+        result = embedder.embed_query(q)
         if result is None or not result.embeddings:
             return []
         vector = result.embeddings[0].values
