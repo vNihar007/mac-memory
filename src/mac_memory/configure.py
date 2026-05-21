@@ -19,7 +19,7 @@ CHROMA_PATH  = Path.home() / "Projects" / "mac-memory" / "chroma-db"
 COLLECTION_NAME  = "mac-memory_indexed_files_table"
 # supported extensions : image, pdf, text, audio
 SUPPORTED_EXTENSIONS = {
-    "image": {".jpg", ".jpeg", ".png", ".gif", ".webp"},
+    "image": {".jpg", ".jpeg", ".png", ".gif", ".webp", ".heic", ".heif"},
     "pdf": {".pdf"},
     "text": {".txt", ".md", ".py", ".js", ".ts", ".json", ".csv", ".html"},
     "audio": {".mp3", ".wav", ".m4a", ".ogg"},
@@ -33,4 +33,8 @@ INDEX_PATHS = [
 ]
 
 # skip dirs : .git, node_modules, __pycache__, ... 
-SKIP_DIRS = {".git", "node_modules", "__pycache__", ...}
+SKIP_DIRS = {".git", "node_modules", "__pycache__"}
+
+
+
+

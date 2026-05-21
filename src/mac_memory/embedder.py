@@ -31,6 +31,8 @@ def embed_text(text:str) -> list[float] | None :
 ## TO EMBED IMAGES
 
 from PIL import Image
+import pillow_heif
+pillow_heif.register_heif_opener()
 import io
 import base64
 import mimetypes
@@ -59,6 +61,8 @@ def embed_image(path:Path) -> list[float] | None :
     except Exception as e : 
         print(f"error while embedding image {path.name} wihh error : {e}")
         return None
+
+
 
 
 # testing the embeddigns

@@ -4,6 +4,7 @@ import chromadb
 from pathlib import Path
 from mac_memory import configure
 from mac_memory import embedder
+from mac_memory import enricher
 
 
 configure.CHROMA_PATH.mkdir(parents=True, exist_ok=True)
@@ -47,17 +48,27 @@ def index_file(path:Path) -> bool :
 
     vector = result.embeddings[0].values  # unwrap EmbedContentResponse → list[float]
 
-    collection.upsert(
-        ids = [str(path)],
-        embeddings = [vector],
-        documents  = [path.name],
-        metadatas = [{
+    # to add extra context to the embedding 
+    extra_meta = {}
+    suffix = path.suffix.lower()
+    if suffix in configure.SUPPORTED_EXTENSIONS["image"]:
+        extra_meta = enricher.enrich_image(path)
+    # for the nxt version
+    # elif suffix in configure.SUPPORTED_EXTENSIONS["audio",set()]:
+    #     extra_meta = enricher.enrich_audio(path)
+
+    base_metadatas = {
             "path" : str(path),
             "name" : path.name ,
             "type" : file_type(path),
             "mtime": mtime , 
             "size" : path.stat().st_size ,
-        }],
+    }
+    collection.upsert(
+        ids = [str(path)],
+        embeddings = [vector],
+        documents  = [path.name],
+        metadatas = [{**base_metadatas , **extra_meta}],
     )
     return True
 
@@ -79,7 +90,7 @@ def walk_and_index(root:Path):
         try : 
             if index_file(file_path) :
                 indexed  += 1 
-                print(f" ✅{file_path.relative_to(root)}")
+                print(f" ✅ {file_path.relative_to(root)}")
                 time.sleep(1.5) 
             else : 
                 skipped += 1 
