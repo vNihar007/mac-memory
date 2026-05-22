@@ -1,5 +1,5 @@
-from dataclasses import dataclass 
-from mac_memory import query_processor
+from dataclasses import dataclass
+from mac_memory import query_processor, registry
 
 @dataclass 
 class SearchResult: 
@@ -24,13 +24,19 @@ except Exception  :
     sys.exit(1)
 
 def search_files(query:str , top_k :int = 8 , file_type:str |None = None ) -> list[SearchResult] :
-    
+    registered = registry.list_folders()
+    if not registered:
+        return []
+
     parsed = query_processor.process_query(query)
     queries = query_processor.expand_query(parsed["clean_query"])
-    
+
     where = parsed["where_filter"]
-    if file_type :
-        where  = {"type" : file_type}
+    if file_type:
+        where = {"type": file_type}
+
+    root_filter = {"root": registered[0]} if len(registered) == 1 else {"root": {"$in": registered}}
+    where = {"$and": [root_filter, where]} if where else root_filter
     
     # Multi-vector search: embed each expanded query, merge results
     all_results = {}
