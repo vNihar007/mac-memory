@@ -75,7 +75,9 @@ def post_folder(body:FolderBody):
 
 @app.delete("/folders")
 def delete_folder(body:FolderBody):
-    registry.remove_folder(body.path)
+    p = str(Path(body.path).expanduser())
+    collection.delete(where={"root": p})
+    registry.remove_folder(p)
     return get_folders()
 
 
