@@ -68,19 +68,111 @@ Try queries like:
 
 ## 🧠 How it works
 
-Mac Memory is three layers: an **embedding pipeline**, a **local daemon**, and a **Raycast front end**.
+Mac Memory is three layers: a **Raycast front end**, a **local daemon**, and an **embedding pipeline** backed by a vector store.
 
+```mermaid
+flowchart LR
+    subgraph UI["🖥️ Raycast Extension · React + TS"]
+        direction TB
+        S["Search Files"]
+        M["Manage Folders"]
+        P["Indexing Progress"]
+    end
+
+    subgraph DAEMON["⚙️ FastAPI Daemon · 127.0.0.1:8765"]
+        direction TB
+        API["HTTP API"]
+        QP["Query Processor<br/>time · type · size · negation"]
+        EMB["Embedder<br/>gemini-embedding-2"]
+        JOB["Background Index Job"]
+        REG[("folders.json<br/>registry")]
+    end
+
+    subgraph STORE["🗄️ Local Storage"]
+        direction TB
+        CH[("ChromaDB<br/>cosine · HNSW")]
+        FS["Your Files<br/>img · pdf · docx · md"]
+    end
+
+    GEM(["☁️ Gemini Embedding API"])
+
+    S       -->|"GET /search?q="| API
+    M       -->|"/folders"| API
+    P       -->|"/index/stream · SSE"| API
+
+    API --> QP
+    API --> JOB
+    JOB --> REG
+    JOB  -->|"walk + extract"| FS
+    QP  --> EMB
+    JOB --> EMB
+    EMB <-->|"embed"| GEM
+    EMB  -->|"vectors"| CH
+    QP  -.->|"query vector → ANN search"| CH
+    CH   -->|"ranked hits"| API
+    API  -->|"results"| S
+
+    classDef ui fill:#FF6363,stroke:#b23,color:#fff;
+    classDef daemon fill:#009688,stroke:#045,color:#fff;
+    classDef store fill:#5b6ee1,stroke:#223,color:#fff;
+    classDef ext fill:#f6c343,stroke:#a70,color:#222;
+    class S,M,P ui;
+    class API,QP,EMB,JOB,REG daemon;
+    class CH,FS store;
+    class GEM ext;
 ```
-┌─────────────────────────────┐       HTTP (localhost:8765)        ┌──────────────────────────────┐
-│   Raycast extension (Node)   │ ───────────────────────────────────▶│   FastAPI daemon (Python)     │
-│                              │                                     │                              │
-│  • Search Files              │  GET  /search?q=…                   │  search_files()  ───┐        │
-│  • Manage Indexed Folders    │  GET/POST/DELETE /folders           │  folder registry    │        │
-│  • Live Indexing Progress    │  POST /index                        │  background indexer  │        │
-│                              │  GET  /index/stream  (SSE)          │                     ▼        │
-└─────────────────────────────┘                                     │   embedder ──▶ ChromaDB      │
-                                                                     │   (gemini-embedding-2)       │
-                                                                     └──────────────────────────────┘
+
+### The two flows
+
+**Indexing (write path)** — turn files into searchable vectors:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as You
+    participant R as Raycast
+    participant D as Daemon
+    participant J as Index Job
+    participant E as Embedder
+    participant G as Gemini API
+    participant C as ChromaDB
+
+    U->>R: Add folder → Re-index
+    R->>D: POST /index
+    D->>J: start background job
+    loop each supported file (skips unchanged by mtime)
+        J->>E: extract text / load image
+        E->>G: embed with "title: … | text: …"
+        G-->>E: vector
+        E->>C: upsert(vector, metadata, root)
+        J-->>D: progress
+        D-->>R: SSE: done/total + ETA
+    end
+    R-->>U: ✓ Indexing complete
+```
+
+**Search (read path)** — turn a phrase into ranked files:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as You
+    participant R as Raycast
+    participant D as Daemon
+    participant Q as Query Processor
+    participant E as Embedder
+    participant C as ChromaDB
+
+    U->>R: "large screenshots from last week"
+    R->>D: GET /search?q=…
+    D->>Q: parse
+    Q-->>D: clean text + filters (type=image, size over 5 MB, recent)
+    D->>E: embed "task: search result | query: …"
+    E-->>D: query vector
+    D->>C: ANN search + metadata filter
+    C-->>D: nearest files by cosine similarity
+    D-->>R: JSON results
+    R-->>U: tiered list + image previews
 ```
 
 ### 1. Embeddings & vector search
