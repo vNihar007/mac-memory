@@ -132,9 +132,46 @@ def embed_text_file(path:Path) -> list[float] | None :
         print(f"falied to embed file {path.name} as error {e}")
         return None
 
+# Office documents: extract text, then embed like any other document.
+def embed_docx(path: Path) -> list[float] | None:
+    if path.stat().st_size > MAX_BYTES:
+        print(f"skip files too large {path.name}")
+        return None
+    try:
+        import docx
+        doc = docx.Document(str(path))
+        text = "\n".join(p.text for p in doc.paragraphs).strip()
+        if not text:
+            return None
+        return embed_text(_doc_prefix(path.name, text[:8000]))
+    except Exception as e:
+        print(f"failed to embed docx {path.name} with error {e}")
+        return None
+
+def embed_pptx(path: Path) -> list[float] | None:
+    if path.stat().st_size > MAX_BYTES:
+        print(f"skip files too large {path.name}")
+        return None
+    try:
+        from pptx import Presentation
+        prs = Presentation(str(path))
+        chunks = [
+            shape.text
+            for slide in prs.slides
+            for shape in slide.shapes
+            if shape.has_text_frame
+        ]
+        text = "\n".join(chunks).strip()
+        if not text:
+            return None
+        return embed_text(_doc_prefix(path.name, text[:8000]))
+    except Exception as e:
+        print(f"failed to embed pptx {path.name} with error {e}")
+        return None
+
 # final funtion for public display
 
-def embed_file(path:Path) ->list[float] |  None : 
+def embed_file(path:Path) ->list[float] |  None :
     suffix = path.suffix.lower()
     if suffix in configure.SUPPORTED_EXTENSIONS["image"]:
         return embed_image(path)
@@ -142,6 +179,11 @@ def embed_file(path:Path) ->list[float] |  None :
         return embed_pdf(path)
     elif suffix in configure.SUPPORTED_EXTENSIONS["text"]:
         return embed_text_file(path)
+    elif suffix in configure.SUPPORTED_EXTENSIONS["office"]:
+        if suffix == ".docx":
+            return embed_docx(path)
+        if suffix == ".pptx":
+            return embed_pptx(path)
     return None
 
         

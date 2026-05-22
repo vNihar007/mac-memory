@@ -227,3 +227,10 @@ README.md
 raycast/node_modules/
 raycast/dist/
 raycast/*.log
+
+# project data / generated artifacts
+chroma-db/
+docs/
+sample_food_images/
+sample_images/
+samples_for_indexing/

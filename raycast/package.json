@@ -3,7 +3,7 @@
   "name": "mac-memory",
   "title": "Mac Memory",
   "description": "Semantic file search across your Mac",
-  "icon" : "🕵️",
+  "icon": "icon.png",
   "author": "varunnihar",
   "categories": ["Productivity"],
   "license": "MIT",
@@ -12,6 +12,12 @@
       "name": "search",
       "title": "Search Files",
       "description": "Semantically search your indexed files",
+      "mode": "view"
+    },
+    {
+      "name": "manage-folders",
+      "title": "Manage Indexed Folders",
+      "description": "Choose which folders are indexed",
       "mode": "view"
     }
   ],
