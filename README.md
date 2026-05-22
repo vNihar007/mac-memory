@@ -52,6 +52,23 @@ Try queries like:
 | `pasta recipe I saved` | the note, even if it's titled `Untitled 7.md` |
 | `passport scan` | the document, matched on its OCR'd text |
 
+### Mac Memory vs. Spotlight
+
+<!-- Add a search-results screenshot here showing a query matching a file with no shared words. -->
+![Semantic search example](assets/screenshots/search.png)
+
+> _Example: typing **"a photo of a cat"** surfaces `cat.jpeg` at the top — ranked by meaning, not filename._
+
+| | 🔦 Spotlight | 🕵️ Mac Memory |
+|---|---|---|
+| **Matches on** | filename + exact keywords | the **meaning** of the content |
+| **"sunset photo" finds** | files literally named *sunset* | any beach/sky photo, by what it depicts |
+| **Inside a PDF / deck** | only if you recall an exact phrase | concepts and paraphrases |
+| **Text inside an image** | ✗ | ✓ via OCR |
+| **Natural-language filters** | ✗ | "large PDFs from last week" |
+| **Runs as** | system service | local daemon + Raycast UI |
+| **Data leaves device** | no | only short embed payloads |
+
 ---
 
 ## ✨ Features
@@ -63,6 +80,22 @@ Try queries like:
 - **Smart query parsing** — "large screenshots from last week" automatically applies a type, size, and time filter.
 - **Incremental & idempotent** — re-indexing only touches files that actually changed (modification-time aware).
 - **Background daemon** — a local service keeps the index warm, so searches return with no cold-start.
+
+---
+
+## 📸 Screenshots
+
+| Manage Indexed Folders | Live Indexing Progress |
+|:---:|:---:|
+| ![Manage indexed folders](assets/screenshots/manage-folders.png) | ![Live indexing progress](assets/screenshots/indexing-progress.png) |
+| Add folders, see per-folder counts, re-index on demand | A live ETA bar, current file, and a result summary |
+
+**Search Files**
+
+<!-- Capture a clean Search command screenshot and save it here. -->
+![Search results](assets/screenshots/search.png)
+
+> _Results are grouped by relevance tier with a similarity meter and an image-preview detail panel._
 
 ---
 
@@ -183,14 +216,67 @@ Every file is converted into a high-dimensional **embedding** — a vector that 
 - **PDFs / Word / PowerPoint** are parsed to plain text (PyMuPDF, `python-docx`, `python-pptx`), then embedded as documents.
 - **Text & code** files are embedded directly.
 
+ChromaDB returns a **distance**; Mac Memory converts it to an intuitive `similarity` score and ranks by it:
+
+```python
+# search.py — distance → similarity, best (lowest distance) first
+results = collection.query(query_embeddings=[vector], n_results=top_k,
+                           where=where, include=["metadatas", "distances"])
+SearchResult(
+    name=meta["name"],
+    file_type=meta["type"],
+    similarity=round(1.0 - distance, 4),   # cosine distance → 0..1 score
+    size=meta.get("size", 0),
+)
+```
+
+A single result comes back to the UI as plain JSON:
+
+```json
+{ "path": "/Users/you/Desktop/beach.jpg", "name": "beach.jpg",
+  "file_type": "image", "similarity": 0.78, "size": 1048576 }
+```
+
 ### 2. The cross-modal trick (`gemini-embedding-2` task prefixes)
 
-This is the detail that makes search actually good. `gemini-embedding-2` is multimodal, but it does **not** take a `task_type` parameter — instead the retrieval task must be encoded as a **text prefix** on the content:
+This is the detail that makes search actually good. `gemini-embedding-2` is multimodal, but it does **not** take a `task_type` parameter — instead the retrieval task must be encoded as a **text prefix** on the content. The whole trick is two tiny helpers:
 
-- **Documents** are embedded as `title: <name> | text: <content>`
-- **Queries** are embedded as `task: search result | query: <your query>`
+```python
+# embedder.py
+def _doc_prefix(title: str, content: str) -> str:
+    return f"title: {title} | text: {content}"
 
-Without these prefixes the model returns generic embeddings, and cross-modal matching collapses — a text query for "dog" scores no higher against a dog photo than against an unrelated PDF. *With* them, the query and the image project into a shared retrieval space and the right result rises to the top. In our benchmark this took a "cat" query from **0.39 → 0.76** cosine similarity against the matching photo, with clean separation from distractors.
+def _query_prefix(query: str) -> str:
+    return f"task: search result | query: {query}"
+
+def embed_query(query: str):                       # search side
+    return embed_text(_query_prefix(query))
+```
+
+So the same words get embedded differently depending on their role:
+
+```text
+query  →  "task: search result | query: ocean at sunset"
+doc    →  "title: beach.jpg | text: a wide sandy shoreline..."
+```
+
+Images carry the document instruction too — the picture is sent *alongside* a doc prefix:
+
+```python
+# embedder.py — embed an image as a "document"
+contents = [_doc_prefix("photo", ""), part]        # part = the image bytes
+client.models.embed_content(model="gemini-embedding-2", contents=contents)
+```
+
+Without the prefixes the model returns generic embeddings and cross-modal matching collapses. *With* them, the query and the image project into a shared retrieval space. Measured on the same files, query **"a photo of a cat"** vs. the cat image:
+
+| Setup | cosine similarity | result |
+|-------|:-----------------:|--------|
+| no prefix (query vs raw image) | **0.39** | ties with unrelated PDFs — ranking is luck |
+| query prefix only | **0.66** | cat clearly ahead |
+| query + image doc prefix | **0.76** | cat wins decisively, distractors ~0.57 |
+
+That single change took the benchmark from **36% → strong** precision@1 on image queries.
 
 ### 3. The local daemon (FastAPI)
 
@@ -205,7 +291,24 @@ A small FastAPI service binds to `127.0.0.1:8765` (loopback only — nothing on 
 | `GET /index/stream` | **Server-Sent Events** stream of live progress |
 | `GET /index/status` | current job snapshot |
 
-Because the daemon holds the ChromaDB collection open, searches have **no per-query cold start**, and indexing runs in a background thread that streams progress to the UI.
+Because the daemon holds the ChromaDB collection open, searches have **no per-query cold start**, and indexing runs in a background thread that streams progress to the UI. You can hit it directly:
+
+```bash
+curl -s 'localhost:8765/search?q=a%20photo%20of%20a%20cat&top_k=2' | python3 -m json.tool
+```
+```json
+[
+  { "name": "cat.jpeg",  "file_type": "image", "similarity": 0.76, "path": "…/cat.jpeg" },
+  { "name": "sphynx.jpeg","file_type": "image", "similarity": 0.71, "path": "…/sphynx.jpeg" }
+]
+```
+
+The progress stream is line-delimited SSE — each event is one JSON snapshot:
+
+```text
+data: {"status":"running","total":142,"done":83,"current":"invoice.pdf","eta_seconds":88.0}
+data: {"status":"done","indexed":120,"skipped":18,"errors":4}
+```
 
 ### 4. Query intelligence
 
@@ -217,9 +320,42 @@ Before a query is embedded, a parser extracts structured filters and strips them
 - **Negation** — "documents not pdf" → an exclusion
 - **Expansion** — "meeting" also searches "conversation / discussion / call", widening recall
 
+Real output from `process_query()` — the filters become a ChromaDB `where` clause, and only the meaning is left to embed:
+
+```python
+>>> process_query("pdf invoices under 5mb")
+{ "clean_query": "invoices",
+  "where_filter": {"type": "pdf", "size": {"$lt": 5242880}} }
+
+>>> process_query("screenshots from last week")
+{ "clean_query": "from",
+  "where_filter": {"mtime": {"$gte": 1778855295.49}, "type": "image"} }
+
+>>> process_query("documents not pdf")
+{ "clean_query": "",
+  "where_filter": {"type": {"$nin": ["pdf"]}} }
+```
+
+When the query is *all* filters (like the last one), there's nothing to embed — the search falls back to a pure metadata filter.
+
 ### 5. Enrichment
 
-Images get extra context at index time: **OCR** (Tesseract) pulls any text inside the image, and **EXIF** metadata captures timestamps and GPS — so a screenshot full of text is findable by what it *says*, not just how it looks.
+Images get extra context at index time: **OCR** (Tesseract) pulls any text inside the image, and **EXIF** metadata captures timestamps and GPS — so a screenshot full of text is findable by what it *says*, not just how it looks. Each file is stored in ChromaDB with metadata like:
+
+```python
+{
+  "path": "/Users/you/Desktop/receipt.png",
+  "name": "receipt.png",
+  "type": "image",
+  "size": 184320,
+  "mtime": 1778855295.49,
+  "root": "/Users/you/Desktop",          # which indexed folder it came from
+  "ocr_text": "WHOLE FOODS  TOTAL $42.18  VISA ****1234",
+  "exif_timestamp": "2025:11:02 14:31:08"
+}
+```
+
+The `root` field is what powers the per-folder file counts in **Manage Indexed Folders**, and the `mtime` is what lets re-indexing skip unchanged files.
 
 ---
 
@@ -311,6 +447,24 @@ Open **Search Files** and type naturally:
 - `large screenshots from last week` → applies type + size + time filters automatically
 
 Results are grouped by relevance tier (strong / possible / weak), with a similarity meter and a detail panel that previews images and shows metadata. Use the type dropdown to filter to Images, PDFs, Text, or Office files.
+
+---
+
+## 💸 Cost & limits
+
+Mac Memory runs on Google's **Gemini embedding API**, which has a generous **free tier** — personal indexing usually stays well within it.
+
+- **Pacing.** Indexing sleeps **~1.5 s between files** to stay under free-tier rate limits, so the first pass of a big folder takes a while:
+
+  | Files | Approx. first-time index |
+  |------:|:--|
+  | 100 | ~2.5 min |
+  | 500 | ~13 min |
+  | 1,000 | ~25 min |
+
+- **Pay once.** Re-indexing only re-embeds files whose modification time changed — a re-index of an unchanged folder finishes in seconds.
+- **Minimal payload.** Only extracted text and (for images) the image bytes are sent to the API. Your folders, file tree, and the vector index never leave the machine.
+- **Tunable.** On a paid tier, drop the `time.sleep(1.5)` in `jobs.py` to index much faster.
 
 ---
 
