@@ -20,18 +20,13 @@ It reads your files — images, PDFs, notes, Word docs, slide decks — turns th
 
 ---
 
-<!-- ───────────────────────────────────────────────────────────────────── -->
-<!-- 📹 DEMO VIDEO — replace this block with your walkthrough.               -->
-<!-- On GitHub you can drag-and-drop an .mp4/.mov directly into the README   -->
-<!-- editor and it becomes a playable embed. Or link a thumbnail to YouTube: -->
-<!--   [![Watch the demo](docs/demo-thumbnail.png)](https://youtu.be/VIDEO_ID) -->
-<!-- ───────────────────────────────────────────────────────────────────── -->
+<div align=”center”>
 
-> ### 🎬 Demo
->
-> **▶ Video walkthrough coming soon — drop your `.mp4` here.**
->
-> _(Placeholder: a 60-second clip showing a query like “the chart from the Q3 deck” surfacing the right slide instantly.)_
+### 🎬 Demo
+
+<video src=”assets/screenshots/Mac%20Memory%20Demo%20Video_with_sub.mp4” controls title=”Mac Memory Demo” width=”800”></video>
+
+</div>
 
 ---
 
@@ -54,10 +49,9 @@ Try queries like:
 
 ### Mac Memory vs. Spotlight
 
-<!-- Add a search-results screenshot here showing a query matching a file with no shared words. -->
-![Semantic search example](assets/screenshots/search.png)
+![Semantic search vs Spotlight](assets/screenshots/spotlight_search.png)
 
-> _Example: typing **"a photo of a cat"** surfaces `cat.jpeg` at the top — ranked by meaning, not filename._
+> _Example: the same query surfaces files by meaning — ranked by semantic similarity, not by filename._
 
 | | 🔦 Spotlight | 🕵️ Mac Memory |
 |---|---|---|
@@ -85,17 +79,22 @@ Try queries like:
 
 ## 📸 Screenshots
 
-| Manage Indexed Folders | Live Indexing Progress |
-|:---:|:---:|
-| ![Manage indexed folders](assets/screenshots/manage-folders.png) | ![Live indexing progress](assets/screenshots/indexing-progress.png) |
-| Add folders, see per-folder counts, re-index on demand | A live ETA bar, current file, and a result summary |
+| Manage Indexed Folders | Live Indexing Progress | Indexing Complete |
+|:---:|:---:|:---:|
+| ![Manage indexed folders](assets/screenshots/manage-folders.png) | ![Live indexing progress](assets/screenshots/indexing-progress.png) | ![Indexing complete](assets/screenshots/indexing-complete.png) |
+| Add folders, see per-folder counts, re-index on demand | A live ETA bar, current file, and a result summary | Summary of indexed, skipped, and errored files |
 
 **Search Files**
 
-<!-- Capture a clean Search command screenshot and save it here. -->
-![Search results](assets/screenshots/search.png)
+![Search results](assets/screenshots/search-files.png)
 
 > _Results are grouped by relevance tier with a similarity meter and an image-preview detail panel._
+
+**Search Results**
+
+![Mac Memory search](assets/screenshots/mac_memory_search.png)
+
+> _Semantic results ranked by cosine similarity — no shared words needed between query and file._
 
 ---
 
