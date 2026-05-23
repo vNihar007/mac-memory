@@ -20,14 +20,6 @@ It reads your files — images, PDFs, notes, Word docs, slide decks — turns th
 
 ---
 
-<div align=”center”>
-
-### 🎬 Demo
-
-<video src=”assets/screenshots/Mac%20Memory%20Demo%20Video_with_sub.mp4” controls title=”Mac Memory Demo” width=”800”></video>
-
-</div>
-
 ---
 
 ## Why this exists
