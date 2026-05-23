@@ -1,26 +1,44 @@
 import { List, ActionPanel, Action, Icon, Color } from "@raycast/api";
 import { useState, useEffect, useRef } from "react";
-import { homedir } from "os";
+import { homedir, tmpdir } from "os";
 import { spawn } from "child_process";
+import { statSync, mkdirSync, existsSync, readFileSync } from "fs";
 import { search as apiSearch, ensureDaemon, SearchResult } from "./api";
 
 const HOME = homedir();
+const THUMB_DIR = `${tmpdir()}/mac-memory-thumbs`;
 
-// ── presentation helpers ─────────────────────────────────────────────────────
+// ── file type helpers ─────────────────────────────────────────────────────────
 
-const TYPE_STYLE: Record<string, { icon: Icon; color: Color }> = {
-  image: { icon: Icon.Image, color: Color.Purple },
-  pdf: { icon: Icon.Document, color: Color.Red },
-  text: { icon: Icon.Text, color: Color.Blue },
-  office: { icon: Icon.Document, color: Color.Magenta },
-  audio: { icon: Icon.Music, color: Color.Orange },
+const TYPE_COLOR: Record<string, Color> = {
+  image: Color.Purple,
+  pdf: Color.Red,
+  text: Color.Blue,
+  office: Color.Magenta,
+  audio: Color.Orange,
 };
 
-function typeStyle(t: string) {
-  return TYPE_STYLE[t] ?? { icon: Icon.Dot, color: Color.SecondaryText };
+function typeColor(t: string): Color {
+  return TYPE_COLOR[t] ?? Color.SecondaryText;
 }
 
-// relevance tiers tuned to gemini-embedding-2 retrieval scores
+function fileTypeDesc(path: string, fileType: string): string {
+  const ext = path.split(".").pop()?.toLowerCase() ?? "";
+  const map: Record<string, string> = {
+    docx: "Word Document", doc: "Word Document",
+    xlsx: "Excel Spreadsheet", xls: "Excel Spreadsheet",
+    pptx: "PowerPoint Presentation", ppt: "PowerPoint Presentation",
+    pdf: "PDF Document",
+    png: "PNG Image", jpg: "JPEG Image", jpeg: "JPEG Image",
+    gif: "GIF Image", heic: "HEIC Image", webp: "WebP Image", svg: "SVG Image",
+    txt: "Text File", md: "Markdown Document", csv: "CSV Spreadsheet",
+    mp3: "MP3 Audio", mp4: "MP4 Video", wav: "WAV Audio", m4a: "M4A Audio",
+    js: "JavaScript", ts: "TypeScript", py: "Python Script",
+    json: "JSON", yaml: "YAML", toml: "TOML", sh: "Shell Script",
+  };
+  return map[ext] ?? fileType;
+}
+
 function tierColor(s: number): Color {
   if (s >= 0.65) return Color.Green;
   if (s >= 0.5) return Color.Yellow;
@@ -35,12 +53,8 @@ function meter(s: number, width = 10): string {
 function humanSize(bytes: number): string {
   if (!bytes) return "—";
   const units = ["B", "KB", "MB", "GB"];
-  let n = bytes;
-  let i = 0;
-  while (n >= 1024 && i < units.length - 1) {
-    n /= 1024;
-    i++;
-  }
+  let n = bytes, i = 0;
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
   return `${n.toFixed(n < 10 && i > 0 ? 1 : 0)} ${units[i]}`;
 }
 
@@ -49,13 +63,63 @@ function prettyDir(path: string): string {
   return dir.startsWith(HOME) ? "~" + dir.slice(HOME.length) : dir;
 }
 
-function detailMarkdown(r: SearchResult): string {
+function parentFolder(path: string): string {
+  return path.split("/").slice(-2, -1)[0] ?? "—";
+}
+
+function fileDate(path: string): string {
+  try {
+    return statSync(path).mtime.toLocaleDateString("en-AU", {
+      day: "2-digit", month: "2-digit", year: "2-digit",
+    });
+  } catch {
+    return "—";
+  }
+}
+
+// ── preview helpers ───────────────────────────────────────────────────────────
+
+async function generateThumbnail(filePath: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    try { mkdirSync(THUMB_DIR, { recursive: true }); } catch { resolve(null); return; }
+    const proc = spawn("qlmanage", ["-t", "-s", "600", "-o", THUMB_DIR, filePath]);
+    const timeout = setTimeout(() => { proc.kill(); resolve(null); }, 5000);
+    proc.on("close", () => {
+      clearTimeout(timeout);
+      const thumbPath = `${THUMB_DIR}/${filePath.split("/").pop()}.png`;
+      resolve(existsSync(thumbPath) ? thumbPath : null);
+    });
+    proc.on("error", () => { clearTimeout(timeout); resolve(null); });
+  });
+}
+
+function textPreview(path: string): string {
+  try {
+    const content = readFileSync(path, "utf-8");
+    const lines = content.split("\n").slice(0, 60).join("\n");
+    const ext = path.split(".").pop()?.toLowerCase() ?? "";
+    const lang = ext === "md" ? "" : ext;
+    return `\`\`\`${lang}\n${lines}\n\`\`\``;
+  } catch {
+    return "_Could not read file._";
+  }
+}
+
+function detailMarkdown(r: SearchResult, thumbnail?: string): string {
   if (r.file_type === "image") {
     return `![${r.name}](${encodeURI("file://" + r.path)})`;
   }
+  if (thumbnail) {
+    return `![preview](${encodeURI("file://" + thumbnail)})`;
+  }
+  if (r.file_type === "text") {
+    return textPreview(r.path);
+  }
   const pct = Math.round(r.similarity * 100);
-  return `# ${r.name}\n\n\`${meter(r.similarity, 20)}\`  **${pct}% match**\n\n\`${prettyDir(r.path)}\``;
+  return `# ${r.name}\n\n\`${meter(r.similarity, 20)}\`  **${pct}% match**\n\n\`${prettyDir(r.path)}\`\n\n_Generating preview…_`;
 }
+
+// ── tiers ─────────────────────────────────────────────────────────────────────
 
 const TIERS: { key: string; title: string; min: number }[] = [
   { key: "strong", title: "Strong matches", min: 0.65 },
@@ -70,24 +134,19 @@ export default function Command() {
   const [typeFilter, setTypeFilter] = useState<string>("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [showDetail, setShowDetail] = useState(false);
+  const [showDetail, setShowDetail] = useState(true);
   const [daemonDown, setDaemonDown] = useState(false);
+  const [thumbnails, setThumbnails] = useState<Map<string, string>>(new Map());
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const queuedThumbs = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     clearTimeout(timer.current);
-    if (!query.trim()) {
-      setResults([]);
-      setIsLoading(false);
-      return;
-    }
+    if (!query.trim()) { setResults([]); setIsLoading(false); return; }
     setIsLoading(true);
     timer.current = setTimeout(async () => {
       if (!(await ensureDaemon())) {
-        setDaemonDown(true);
-        setResults([]);
-        setIsLoading(false);
-        return;
+        setDaemonDown(true); setResults([]); setIsLoading(false); return;
       }
       setDaemonDown(false);
       setResults(await apiSearch(query, 12, typeFilter || undefined));
@@ -96,33 +155,56 @@ export default function Command() {
     return () => clearTimeout(timer.current);
   }, [query, typeFilter]);
 
+  // generate Quick Look thumbnails for non-image files in the background
+  useEffect(() => {
+    for (const r of results) {
+      if (r.file_type === "image" || queuedThumbs.current.has(r.path)) continue;
+      queuedThumbs.current.add(r.path);
+      generateThumbnail(r.path).then((thumb) => {
+        if (thumb) setThumbnails((prev) => new Map(prev).set(r.path, thumb));
+      });
+    }
+  }, [results]);
+
   function renderItem(r: SearchResult) {
-    const style = typeStyle(r.file_type);
     const pct = Math.round(r.similarity * 100);
+    const thumb = thumbnails.get(r.path);
+
     return (
       <List.Item
         key={r.path}
-        icon={{ source: style.icon, tintColor: style.color }}
+        icon={{ fileIcon: r.path }}
         title={r.name}
-        subtitle={showDetail ? undefined : prettyDir(r.path)}
+        subtitle={showDetail ? undefined : `${fileTypeDesc(r.path, r.file_type)} · ${humanSize(r.size)}`}
         accessories={[
           { tag: { value: `${pct}%`, color: tierColor(r.similarity) } },
-          ...(showDetail ? [] : [{ text: r.file_type }]),
+          ...(showDetail ? [] : [
+            { text: { value: fileDate(r.path), color: Color.SecondaryText } },
+            { text: { value: parentFolder(r.path), color: Color.SecondaryText } },
+          ]),
         ]}
         detail={
           <List.Item.Detail
-            markdown={detailMarkdown(r)}
+            markdown={detailMarkdown(r, thumb)}
             metadata={
               <List.Item.Detail.Metadata>
-                <List.Item.Detail.Metadata.Label title="Name" text={r.name} icon={{ source: style.icon, tintColor: style.color }} />
+                <List.Item.Detail.Metadata.Label
+                  title="Name"
+                  text={r.name}
+                  icon={{ fileIcon: r.path }}
+                />
                 <List.Item.Detail.Metadata.TagList title="Type">
-                  <List.Item.Detail.Metadata.TagList.Item text={r.file_type} color={style.color} />
+                  <List.Item.Detail.Metadata.TagList.Item
+                    text={fileTypeDesc(r.path, r.file_type)}
+                    color={typeColor(r.file_type)}
+                  />
                 </List.Item.Detail.Metadata.TagList>
                 <List.Item.Detail.Metadata.Label title="Match" text={`${meter(r.similarity)}  ${pct}%`} />
                 <List.Item.Detail.Metadata.Label title="Size" text={humanSize(r.size)} />
+                <List.Item.Detail.Metadata.Label title="Modified" text={fileDate(r.path)} />
                 <List.Item.Detail.Metadata.Separator />
-                <List.Item.Detail.Metadata.Label title="Folder" text={prettyDir(r.path)} />
-                <List.Item.Detail.Metadata.Label title="Path" text={r.path} />
+                <List.Item.Detail.Metadata.Label title="Folder" text={parentFolder(r.path)} />
+                <List.Item.Detail.Metadata.Label title="Path" text={prettyDir(r.path)} />
               </List.Item.Detail.Metadata>
             }
           />
@@ -135,7 +217,7 @@ export default function Command() {
             </ActionPanel.Section>
             <ActionPanel.Section>
               <Action
-                title={showDetail ? "Hide Details" : "Show Details"}
+                title={showDetail ? "Hide Preview" : "Show Preview"}
                 icon={Icon.Sidebar}
                 shortcut={{ modifiers: ["cmd"], key: "d" }}
                 onAction={() => setShowDetail((v) => !v)}
@@ -153,7 +235,7 @@ export default function Command() {
     <List
       isLoading={isLoading}
       onSearchTextChange={setQuery}
-      searchBarPlaceholder="Search your files by meaning — “a photo of a cat”, “my resume”…"
+      searchBarPlaceholder='Search your files by meaning — "a photo of a cat", "my resume"…'
       isShowingDetail={showDetail && results.length > 0}
       throttle
       searchBarAccessory={
@@ -171,7 +253,7 @@ export default function Command() {
         <List.EmptyView
           icon={{ source: Icon.WifiDisabled, tintColor: Color.Red }}
           title="Daemon not running"
-          description="Couldn’t reach the mac-memory daemon on port 8765. Make sure it’s loaded via launchctl."
+          description="Couldn't reach the mac-memory daemon on port 8765. Make sure it's loaded via launchctl."
           actions={
             <ActionPanel>
               <Action title="Retry" icon={Icon.ArrowClockwise} onAction={() => setQuery((q) => q + " ")} />
@@ -188,7 +270,7 @@ export default function Command() {
         <List.EmptyView
           icon={{ source: Icon.Tray, tintColor: Color.SecondaryText }}
           title="No matches"
-          description={`Nothing indexed matches “${query}”${typeFilter ? ` in ${typeFilter}` : ""}.`}
+          description={`Nothing indexed matches "${query}"${typeFilter ? ` in ${typeFilter}` : ""}.`}
         />
       ) : (
         TIERS.map((tier, i) => {
