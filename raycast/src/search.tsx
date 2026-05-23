@@ -1,6 +1,7 @@
-import { List, ActionPanel, Action, Icon, Color, open } from "@raycast/api";
+import { List, ActionPanel, Action, Icon, Color } from "@raycast/api";
 import { useState, useEffect, useRef } from "react";
 import { homedir } from "os";
+import { spawn } from "child_process";
 import { search as apiSearch, ensureDaemon, SearchResult } from "./api";
 
 const HOME = homedir();
@@ -129,7 +130,7 @@ export default function Command() {
         actions={
           <ActionPanel>
             <ActionPanel.Section>
-              <Action title="Open File" icon={Icon.ArrowNe} onAction={() => open(r.path)} />
+              <Action title="Open File" icon={Icon.ArrowNe} onAction={() => spawn("open", [r.path], { detached: true })} />
               <Action.ShowInFinder path={r.path} />
             </ActionPanel.Section>
             <ActionPanel.Section>
